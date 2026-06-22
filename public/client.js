@@ -7,21 +7,37 @@ const sendButton = document.querySelector("#sendButton");
 const portalOverlay = document.querySelector("#portalOverlay");
 const sessionIdKey = "nimbo-session-id";
 let sessionId = localStorage.getItem(sessionIdKey);
-if (!sessionId) {
+let userEvents;
+
+function createSessionId() {
   sessionId = crypto.randomUUID();
   localStorage.setItem(sessionIdKey, sessionId);
+}
+
+if (!sessionId) {
+  createSessionId();
 }
 let emptyClicks = [];
 let currentStatus = "idle";
 
-subscribe(`/events?session=${encodeURIComponent(sessionId)}`, ({ messages: items, status }) => {
-  currentStatus = status || "idle";
-  renderMessages(messages, items);
-  const running = currentStatus === "running";
-  sendButton.classList.toggle("waiting", running);
-  sendButton.disabled = false;
-  sendButton.setAttribute("aria-label", running ? "暂停" : "发送");
-});
+connectUser();
+
+function connectUser() {
+  userEvents?.close();
+  userEvents = subscribe(`/events?session=${encodeURIComponent(sessionId)}`, ({ deleted, messages: items, status }) => {
+    if (deleted) {
+      createSessionId();
+      connectUser();
+      return;
+    }
+    currentStatus = status || "idle";
+    renderMessages(messages, items);
+    const running = currentStatus === "running";
+    sendButton.classList.toggle("waiting", running);
+    sendButton.disabled = false;
+    sendButton.setAttribute("aria-label", running ? "暂停" : "发送");
+  });
+}
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();

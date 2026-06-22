@@ -115,6 +115,17 @@ function broadcastAdmin(selectedId = "") {
   pushSse(adminClients, adminPayload(selectedId));
 }
 
+function deleteSession(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session) return false;
+  pushSse(session.clients, { deleted: true });
+  for (const client of session.clients) {
+    client.end();
+  }
+  sessions.delete(sessionId);
+  return true;
+}
+
 async function readBody(req) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
@@ -295,6 +306,32 @@ const server = createServer(async (req, res) => {
     session.messages = [createWelcome()];
     broadcastSession(session);
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/delete-session") {
+    if (!requireAdmin(req, res)) return;
+    const body = await readBody(req);
+    const sessionId = String(body.sessionId || "");
+    const deleted = deleteSession(sessionId);
+    broadcastAdmin("");
+    sendJson(res, 200, { ok: true, deleted });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/session-label") {
+    if (!requireAdmin(req, res)) return;
+    const body = await readBody(req);
+    const session = sessions.get(String(body.sessionId || ""));
+    const label = String(body.label || "").trim().slice(0, 40);
+    if (!session || !label) {
+      sendJson(res, 400, { error: "Session and label are required." });
+      return;
+    }
+    session.label = label;
+    session.lastSeen = Date.now();
+    broadcastAdmin(session.id);
+    sendJson(res, 200, { ok: true, label });
     return;
   }
 

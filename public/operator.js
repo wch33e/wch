@@ -9,6 +9,8 @@ const replyButton = document.querySelector("#replyButton");
 const revealButton = document.querySelector("#revealButton");
 const resetButton = document.querySelector("#resetButton");
 const selectedUser = document.querySelector("#selectedUser");
+const labelInput = document.querySelector("#labelInput");
+const labelButton = document.querySelector("#labelButton");
 const loginScreen = document.querySelector("#loginScreen");
 const loginForm = document.querySelector("#loginForm");
 const pinInput = document.querySelector("#pinInput");
@@ -56,17 +58,19 @@ function connectAdmin() {
   adminEvents?.close();
   const query = selectedSessionId ? `?session=${encodeURIComponent(selectedSessionId)}` : "";
   adminEvents = subscribe(`/admin-events${query}`, (data) => {
-    if (data.selectedId && selectedSessionId !== data.selectedId) {
+    if (selectedSessionId !== data.selectedId) {
       selectedSessionId = data.selectedId;
       history.replaceState(null, "", "/operator.html");
     }
     renderSessions(data.sessions);
+    const selectedSession = data.sessions.find((session) => session.id === data.selectedId);
     activeCount.textContent = String(data.activeCount);
     renderMessages(messages, data.messages || []);
     emptyState.hidden = Boolean(data.selectedId);
-    selectedUser.textContent = selectedSessionId
-      ? `正在回复：${data.sessions.find((session) => session.id === selectedSessionId)?.label || "当前用户"}`
-      : "未选择用户";
+    selectedUser.textContent = selectedSession ? `正在回复：${selectedSession.label}` : "未选择用户";
+    labelInput.value = selectedSession?.label || "";
+    labelInput.disabled = !selectedSession;
+    labelButton.disabled = !selectedSession;
     replyInput.disabled = !data.selectedId;
     replyButton.disabled = !data.selectedId;
     revealButton.disabled = !data.selectedId;
@@ -80,9 +84,11 @@ function connectAdmin() {
 function renderSessions(sessions) {
   sessionList.innerHTML = "";
   for (const session of sessions) {
+    const card = document.createElement("div");
+    card.className = `session-card${session.id === selectedSessionId ? " active" : ""}`;
     const button = document.createElement("button");
     button.type = "button";
-    button.className = `session-card${session.id === selectedSessionId ? " active" : ""}`;
+    button.className = "session-select";
     const title = document.createElement("span");
     title.className = "session-card-title";
 
@@ -111,7 +117,26 @@ function renderSessions(sessions) {
       selectedUser.textContent = `正在回复：${session.label}`;
       connectAdmin();
     });
-    sessionList.append(button);
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "session-delete";
+    deleteButton.textContent = "删除";
+    deleteButton.setAttribute("aria-label", `删除${session.label}`);
+    deleteButton.addEventListener("click", async () => {
+      const confirmed = window.confirm(`删除 ${session.label} 和它的聊天记录？`);
+      if (!confirmed) return;
+      deleteButton.disabled = true;
+      await postJson("/api/delete-session", { sessionId: session.id });
+      if (selectedSessionId === session.id) {
+        selectedSessionId = "";
+        history.replaceState(null, "", "/operator.html");
+      }
+      connectAdmin();
+    });
+
+    card.append(button, deleteButton);
+    sessionList.append(card);
   }
 }
 
@@ -141,6 +166,27 @@ replyInput.addEventListener("keydown", (event) => {
 });
 revealButton.addEventListener("click", () => selectedSessionId && postJson("/api/reveal", { sessionId: selectedSessionId }));
 resetButton.addEventListener("click", () => selectedSessionId && postJson("/api/reset", { sessionId: selectedSessionId }));
+labelButton.addEventListener("click", async () => {
+  const label = labelInput.value.trim();
+  if (!selectedSessionId || !label) return;
+  labelButton.disabled = true;
+  labelButton.textContent = "保存中...";
+  try {
+    await postJson("/api/session-label", { sessionId: selectedSessionId, label });
+    labelButton.textContent = "已保存";
+    window.setTimeout(() => {
+      labelButton.textContent = "保存";
+    }, 650);
+  } finally {
+    labelButton.disabled = false;
+  }
+});
+labelInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    labelButton.click();
+  }
+});
 logoutButton.addEventListener("click", async () => {
   await postJson("/api/admin-logout");
   adminEvents?.close();
