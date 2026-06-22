@@ -11,8 +11,15 @@ const adminPin = process.env.ADMIN_PIN || "246810";
 const adminSecret = process.env.ADMIN_SECRET || crypto.randomUUID();
 
 const welcomeText = "你好，我是 Nimbo AI。想聊点什么？";
+const heartbeatMs = 15000;
+const clientMaxAgeMs = 20 * 60 * 1000;
+const sessionTtlMs = 45 * 60 * 1000;
+const maxSessions = 120;
+const maxMessagesPerSession = 120;
+const adminSessionLimit = 80;
 const sessions = new Map();
 const adminClients = new Set();
+const clientTimers = new Map();
 
 function sendJson(res, status, body) {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
@@ -52,6 +59,7 @@ function createWelcome() {
 }
 
 function ensureSession(id) {
+  pruneSessions();
   const sessionId = String(id || "").trim().slice(0, 80) || crypto.randomUUID();
   if (!sessions.has(sessionId)) {
     sessions.set(sessionId, {
@@ -67,6 +75,11 @@ function ensureSession(id) {
   const session = sessions.get(sessionId);
   session.lastSeen = Date.now();
   return session;
+}
+
+function trimMessages(session) {
+  if (session.messages.length <= maxMessagesPerSession) return;
+  session.messages = [session.messages[0], ...session.messages.slice(-(maxMessagesPerSession - 1))];
 }
 
 function sessionSummary(session) {
@@ -86,13 +99,14 @@ function sessionSummary(session) {
 }
 
 function adminPayload(selectedId = "") {
-  const list = [...sessions.values()]
+  const all = [...sessions.values()]
     .map(sessionSummary)
     .sort((a, b) => b.lastSeen - a.lastSeen);
+  const list = all.slice(0, adminSessionLimit);
   const selected = selectedId && sessions.has(selectedId) ? sessions.get(selectedId) : sessions.get(list[0]?.id);
   return {
     sessions: list,
-    activeCount: list.filter((session) => session.online).length,
+    activeCount: all.filter((session) => session.online).length,
     selectedId: selected?.id || "",
     selectedStatus: selected?.status || "idle",
     messages: selected?.messages || []
@@ -102,11 +116,17 @@ function adminPayload(selectedId = "") {
 function pushSse(clients, body) {
   const payload = `data: ${JSON.stringify(body)}\n\n`;
   for (const res of clients) {
-    res.write(payload);
+    try {
+      res.write(payload);
+    } catch {
+      cleanupSseClient(res);
+      res.destroy();
+    }
   }
 }
 
 function broadcastSession(session) {
+  trimMessages(session);
   pushSse(session.clients, { messages: session.messages, sessionId: session.id, status: session.status });
   broadcastAdmin(session.id);
 }
@@ -124,6 +144,54 @@ function deleteSession(sessionId) {
   }
   sessions.delete(sessionId);
   return true;
+}
+
+function cleanupSseClient(res) {
+  const timers = clientTimers.get(res);
+  if (!timers) return;
+  clearInterval(timers.heartbeat);
+  clearTimeout(timers.maxAge);
+  clientTimers.delete(res);
+}
+
+function registerSseClient(req, res, clients, onClose) {
+  clients.add(res);
+  res.write(": connected\n\n");
+  const heartbeat = setInterval(() => {
+    if (res.destroyed) {
+      cleanupSseClient(res);
+      clients.delete(res);
+      return;
+    }
+    res.write(": ping\n\n");
+  }, heartbeatMs);
+  const maxAge = setTimeout(() => res.end(), clientMaxAgeMs);
+  clientTimers.set(res, { heartbeat, maxAge });
+  req.on("close", () => {
+    cleanupSseClient(res);
+    clients.delete(res);
+    onClose?.();
+  });
+}
+
+function pruneSessions() {
+  const now = Date.now();
+  for (const [id, session] of sessions) {
+    if (session.clients.size === 0 && now - session.lastSeen > sessionTtlMs) {
+      sessions.delete(id);
+    } else {
+      trimMessages(session);
+    }
+  }
+  const overflow = sessions.size - maxSessions;
+  if (overflow <= 0) return;
+  const removable = [...sessions.values()]
+    .filter((session) => session.clients.size === 0)
+    .sort((a, b) => a.lastSeen - b.lastSeen)
+    .slice(0, overflow);
+  for (const session of removable) {
+    sessions.delete(session.id);
+  }
 }
 
 async function readBody(req) {
@@ -191,8 +259,13 @@ async function serveStatic(req, res) {
   }
 }
 
-const server = createServer(async (req, res) => {
+async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
+
+  if (req.method === "GET" && url.pathname === "/healthz") {
+    sendJson(res, 200, { ok: true, sessions: sessions.size, adminClients: adminClients.size });
+    return;
+  }
 
   if (req.method === "GET" && url.pathname === "/events") {
     const session = ensureSession(url.searchParams.get("session"));
@@ -201,15 +274,13 @@ const server = createServer(async (req, res) => {
       "cache-control": "no-cache, no-transform",
       connection: "keep-alive"
     });
-    session.clients.add(res);
     session.lastSeen = Date.now();
-    res.write(`data: ${JSON.stringify({ messages: session.messages, sessionId: session.id, status: session.status })}\n\n`);
-    broadcastAdmin(session.id);
-    req.on("close", () => {
-      session.clients.delete(res);
+    registerSseClient(req, res, session.clients, () => {
       session.lastSeen = Date.now();
       broadcastAdmin(session.id);
     });
+    res.write(`data: ${JSON.stringify({ messages: session.messages, sessionId: session.id, status: session.status })}\n\n`);
+    broadcastAdmin(session.id);
     return;
   }
 
@@ -221,9 +292,8 @@ const server = createServer(async (req, res) => {
       "cache-control": "no-cache, no-transform",
       connection: "keep-alive"
     });
-    adminClients.add(res);
+    registerSseClient(req, res, adminClients);
     res.write(`data: ${JSON.stringify(adminPayload(selectedId))}\n\n`);
-    req.on("close", () => adminClients.delete(res));
     return;
   }
 
@@ -336,6 +406,30 @@ const server = createServer(async (req, res) => {
   }
 
   serveStatic(req, res);
+}
+
+const server = createServer((req, res) => {
+  handleRequest(req, res).catch((error) => {
+    console.error("Request failed", error);
+    if (!res.headersSent) {
+      sendJson(res, 500, { error: "Server error." });
+    } else {
+      res.end();
+    }
+  });
+});
+
+setInterval(() => {
+  pruneSessions();
+  broadcastAdmin("");
+}, 60 * 1000).unref();
+
+server.requestTimeout = 30000;
+server.headersTimeout = 35000;
+server.keepAliveTimeout = 5000;
+server.on("clientError", (error, socket) => {
+  console.error("Client error", error.message);
+  socket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
 });
 
 server.listen(port, host, () => {
