@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Nimbo logo">
+  <defs>
+    <linearGradient id="g" x1="18" y1="18" x2="106" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#37D6BE"/>
+      <stop offset=".55" stop-color="#56A7FF"/>
+      <stop offset="1" stop-color="#7C5CFF"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="32" fill="#10131A"/>
+  <path d="M34 72c0-22 15-38 36-38 17 0 29 11 29 27 0 14-10 24-25 24H55c-5 0-9-4-9-9s4-9 9-9h18c5 0 8-3 8-7 0-5-4-9-11-9-10 0-18 8-18 20 0 13 10 23 25 23 8 0 15-3 20-8l10 13c-8 8-18 12-31 12-25 0-42-16-42-39Z" fill="url(#g)"/>
+  <circle cx="45" cy="39" r="6" fill="#F7D35B"/>
+  <path d="M27 35h9M31.5 30.5v9" stroke="#F7D35B" stroke-width="4" stroke-linecap="round"/>
+</svg>

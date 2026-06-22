@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nimbo AI</title>
+    <link rel="icon" href="/brand.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <div id="portalOverlay" class="portal-overlay" aria-hidden="true">
+        <div class="portal-ring"></div>
+        <span>进入控制台</span>
+      </div>
+      <section class="chat-panel" aria-label="Nimbo chat">
+        <header class="topbar">
+          <div class="brand">
+            <img src="/brand.svg" alt="" />
+            <div>
+              <strong>Nimbo AI</strong>
+            </div>
+          </div>
+          <div class="status">
+            <span class="dot"></span>
+            在线
+          </div>
+        </header>
+
+        <div id="messages" class="messages" aria-live="polite"></div>
+
+        <form id="chatForm" class="composer">
+          <input
+            id="messageInput"
+            autocomplete="off"
+            maxlength="1000"
+            placeholder="给 Nimbo 发消息..."
+            aria-label="消息"
+          />
+          <button id="sendButton" class="send-button" type="submit" aria-label="发送">
+            <svg class="send-icon arrow" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 19V5M12 5 6 11M12 5l6 6" />
+            </svg>
+            <span class="send-icon stop" aria-hidden="true"></span>
+          </button>
+        </form>
+      </section>
+    </main>
+    <script src="/client.js" type="module"></script>
+  </body>
+</html>
