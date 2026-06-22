@@ -56,10 +56,10 @@ function connectAdmin() {
   adminEvents?.close();
   const query = selectedSessionId ? `?session=${encodeURIComponent(selectedSessionId)}` : "";
   adminEvents = subscribe(`/admin-events${query}`, (data) => {
-  if (data.selectedId && selectedSessionId !== data.selectedId) {
-    selectedSessionId = data.selectedId;
-    history.replaceState(null, "", "/operator.html");
-  }
+    if (data.selectedId && selectedSessionId !== data.selectedId) {
+      selectedSessionId = data.selectedId;
+      history.replaceState(null, "", "/operator.html");
+    }
     renderSessions(data.sessions);
     activeCount.textContent = String(data.activeCount);
     renderMessages(messages, data.messages || []);
